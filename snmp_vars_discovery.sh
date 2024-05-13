@@ -2,11 +2,15 @@
 #
 # Icinga Plugin Script (Check Command) for pull Icinga Host variables from SNMP data
 # Aleksey Maksimov <aleksey.maksimov@it-kb.ru>
-# Tested on Debian GNU/Linux 9.11 (stretch) with Icinga r2.11.1-1 / Director 1.7.1 / NET-SNMP 5.7.3
+# Tested on: 
+# - Debian GNU/Linux 10.13 (Buster) with Icinga r2.14.2-1 / Director 1.11.1 / NET-SNMP 5.7.3
+# - Debian GNU/Linux 12.5 (Bookworm) with Icinga r2.14.2-1 / Director 1.11.1 / NET-SNMP 5.9.3
 # Put here /usr/lib/nagios/plugins/snmp_vars_discovery.sh
 #
+#
+#
 PLUGIN_NAME="Icinga Plugin Check Command for pull Icinga Host variables (from SNMP data)"
-PLUGIN_VERSION="2019.12.01"
+PLUGIN_VERSION="2024.05.13"
 PRINTINFO=`printf "\n%s, version %s\n \n" "$PLUGIN_NAME" "$PLUGIN_VERSION"`
 #
 # Exit codes
@@ -15,7 +19,9 @@ codeOK=0
 codeWARNING=1
 codeCRITICAL=2
 codeUNKNOWN=3
-
+#
+unset http_proxy
+unset https_proxy
 
 # ---------- Script options help ----------
 #
@@ -25,8 +31,8 @@ Usage() {
 
 Option   GNU long option     Meaning
 ------   ---------------     -------
- -H      --hostname          Host name (Icinga object Host.name)
- -h      --hostaddr          Host address (Icinga object Host.address)
+ -H      --hostname          Icinga Host name (Icinga object Host.name)
+ -h      --hostaddr          SNMP host address (like Icinga object Host.address or another IP address)
  -P      --protocol          SNMP protocol version. Possible values: 1|2c|3
  -C      --community         SNMPv1/2c community string for SNMP communication (for example,"public")
  -L      --seclevel          SNMPv3 securityLevel. Possible values: noAuthNoPriv|authNoPriv|authPriv
@@ -123,13 +129,13 @@ GetData()
   fRes=$(snmpget $vCS $1 2>&1)
   rcode=$?
   if [ "$rcode" -ne "0" ]; then
-    echo "Plugin error: $(echo $fRes |  cut -c1-100)"
+    echo "SNMP error: $(echo $fRes |  cut -c1-100)"
     return 1
   fi
 
-  if echo "$fRes" | grep -q "No Such Object available on this agent at this OID"
+  if echo "$fRes" | grep -q -E "No Such Object"
   then
-    echo "Plugin error: $fRes - $1"
+    echo "SNMP error: $fRes - $1"
     return 1
   fi
 
@@ -170,18 +176,24 @@ vData=$( GetData '1.3.6.1.2.1.1.4.0' ); if [ $? -ne "0" ]; then exit $codeUNKNOW
 vData=$( GetData '1.3.6.1.2.1.1.5.0' ); if [ $? -ne "0" ]; then exit $codeUNKNOWN; fi; SetData "$vData" "snmp_SNMPv2_MIB_sysName";
 vData=$( GetData '1.3.6.1.2.1.1.6.0' ); if [ $? -ne "0" ]; then exit $codeUNKNOWN; fi; SetData "$vData" "snmp_SNMPv2_MIB_sysLocation";
 
-
 # ---------- Pull variables for Cisco Switches/Routers ----------
 #
 vSibID=""
 #
 # 1.3.6.1.4.1.9.1.324     Switch Cisco Catalyst WS-C2950T-24
+# 1.3.6.1.4.1.9.1.543     Router Cisco 3825
+# 1.3.6.1.4.1.9.1.544     Router Cisco 3845
 # 1.3.6.1.4.1.9.1.559     Switch Cisco Catalyst_WS-C2950T-48-SI
+# 1.3.6.1.4.1.9.1.577     Router Cisco 2821
+# 1.3.6.1.4.1.9.1.837	  Router Cisco 881
 # 1.3.6.1.4.1.9.1.1042    Router Cisco 3925
 # 1.3.6.1.4.1.9.1.1644    Switch Cisco Catalyst WS-C3850-24T
+# 1.3.6.1.4.1.9.1.1707    Router Cisco ISR4451-X/K9
 # 1.3.6.1.4.1.9.1.1745    Switch Cisco Catalyst WS-C3850-24T
+# 1.3.6.1.4.1.9.1.2494	  Switch Cisco Catalyst C9300-24T-A
+# 1.3.6.1.4.1.9.1.2695	  Switch Cisco Catalyst C9200-24T-RE
 #
-if echo "$vOID" | grep -q -E "1.3.6.1.4.1.9.1.(324|559|1042|1644|1745)"
+if echo "$vOID" | grep -q -E "1.3.6.1.4.1.9.1.(324|543|544|559|577|837|1042|1644|1707|1745|2494|2695)"
 then vSubID="1"
 #
 # 1.3.6.1.4.1.9.1.516     Switch Cisco Catalyst WS-C3750G-24TS-S1U ; Switch Cisco Catalyst WS-C3750V2-24TS-S
@@ -205,11 +217,12 @@ then vSubID="1001"
 elif echo "$vOID" | grep -q -E "1.3.6.1.4.1.9.6.1.(87.24.1|88.50.2)"
 then vSubID="67108992"
 #
+# 1.3.6.1.4.1.9.6.1.96.8.2    Switch Cisco SF350-08-K9
 # 1.3.6.1.4.1.9.6.1.92.24.5   Switch Cisco SF550X-24P
 # 1.3.6.1.4.1.9.6.1.94.48.6   Switch Cisco SG350X-48MP
 # 1.3.6.1.4.1.9.6.1.95.10.5   Switch Cisco SG350-10P-K9
 #
-elif echo "$vOID" | grep -q -E "1.3.6.1.4.1.9.6.1.(92.24.5|94.48.6|95.10.5)"
+elif echo "$vOID" | grep -q -E "1.3.6.1.4.1.9.6.1.(96.8.2|92.24.5|94.48.6|95.10.5)"
 then vSubID="67109120"
 #
 #
@@ -223,6 +236,18 @@ if [ "$vSubID" != "" ]; then
   vData=$( GetData '1.3.6.1.2.1.47.1.1.1.1.13.'$vSubID ); if [ $? -ne "0" ]; then exit $codeUNKNOWN; fi; SetData "$vData" "snmp_ENTITY_MIB_entPhysicalModelName";
 fi
 
+# ---------- Pull variables for MikroTik Routers ----------
+#
+if echo "$vOID" | grep -q -E "1.3.6.1.4.1.14988.1"
+then
+  vData=$( GetData '1.3.6.1.2.1.47.1.1.1.1.2.65536' ); if [ $? -ne "0" ]; then exit $codeUNKNOWN; fi; SetData "$vData" "snmp_ENTITY_MIB_entPhysicalDescr";
+  vData=$( GetData '1.3.6.1.2.1.47.1.1.1.1.7.65536' ); if [ $? -ne "0" ]; then exit $codeUNKNOWN; fi; SetData "$vData" "snmp_ENTITY_MIB_entPhysicalName";
+  vData=$( GetData '1.3.6.1.4.1.14988.1.1.4.1.0' ); if [ $? -ne "0" ]; then exit $codeUNKNOWN; fi; SetData "$vData" "snmp_MIKROTIK_MIB_mtxrLicSoftwareId";
+  vData=$( GetData '1.3.6.1.4.1.14988.1.1.7.3.0' ); if [ $? -ne "0" ]; then exit $codeUNKNOWN; fi; SetData "$vData" "snmp_MIKROTIK_MIB_mtxrSerialNumber";
+  vData=$( GetData '1.3.6.1.4.1.14988.1.1.7.4.0' ); if [ $? -ne "0" ]; then exit $codeUNKNOWN; fi; SetData "$vData" "snmp_MIKROTIK_MIB_mtxrFirmwareVersion";
+  vData=$( GetData '1.3.6.1.4.1.14988.1.1.7.7.0' ); if [ $? -ne "0" ]; then exit $codeUNKNOWN; fi; SetData "$vData" "snmp_MIKROTIK_MIB_mtxrFirmwareUpgradeVersion";
+fi
+
 
 # ---------- Pull variables for D-Link Switches ----------
 #
@@ -232,6 +257,22 @@ if echo "$vOID" | grep -q -E "1.3.6.1.4.1.171.10.75.18.1"
 then
   vData=$( GetData '1.3.6.1.4.1.171.10.75.18.1.1.2.0' ); if [ $? -ne "0" ]; then exit $codeUNKNOWN; fi; SetData "$vData" "snmp_DES_1210_28_MIB_sysHardwareVersion";
   vData=$( GetData '1.3.6.1.4.1.171.10.75.18.1.1.3.0' ); if [ $? -ne "0" ]; then exit $codeUNKNOWN; fi; SetData "$vData" "snmp_DES_1210_28_MIB_sysFirmwareVersion";
+fi
+
+
+# ---------- Pull variables for 3Com Switches ----------
+#
+# .1.3.6.1.4.1.43.10.27.4.1.2.11	Switch 3Com SuperStack 3 4250T 3C17302(A)
+#
+if echo "$vOID" | grep -q -E "1.3.6.1.4.1.43.10.27.4.1.2.11"
+then
+  vData=$( GetData '1.3.6.1.4.1.43.10.27.1.1.1.5.1' ); if [ $? -ne "0" ]; then exit $codeUNKNOWN; fi; SetData "$vData" "snmp_A3COM0017_STACK_CONFIG_MIB_stackUnitDesc";
+  vData=$( GetData '1.3.6.1.4.1.43.10.27.1.1.1.19.1' ); if [ $? -ne "0" ]; then exit $codeUNKNOWN; fi; SetData "$vData" "snmp_A3COM0017_STACK_CONFIG_MIB_stackUnitProductNumber";
+  vData=$( GetData '1.3.6.1.4.1.43.10.27.1.1.1.13.1' ); if [ $? -ne "0" ]; then exit $codeUNKNOWN; fi; SetData "$vData" "snmp_A3COM0017_STACK_CONFIG_MIB_stackUnitSerialNumber";
+  vData=$( GetData '1.3.6.1.4.1.43.10.27.1.1.1.2.1' ); if [ $? -ne "0" ]; then exit $codeUNKNOWN; fi; SetData "$vData" "snmp_A3COM0017_STACK_CONFIG_MIB_stackUnitAddress";
+  vData=$( GetData '1.3.6.1.4.1.43.10.27.1.1.1.10.1' ); if [ $? -ne "0" ]; then exit $codeUNKNOWN; fi; SetData "$vData" "snmp_A3COM0017_STACK_CONFIG_MIB_stackUnitPromVersion";
+  vData=$( GetData '1.3.6.1.4.1.43.10.27.1.1.1.11.1' ); if [ $? -ne "0" ]; then exit $codeUNKNOWN; fi; SetData "$vData" "snmp_A3COM0017_STACK_CONFIG_MIB_stackUnitHWVersion";
+  vData=$( GetData '1.3.6.1.4.1.43.10.27.1.1.1.12.1' ); if [ $? -ne "0" ]; then exit $codeUNKNOWN; fi; SetData "$vData" "snmp_A3COM0017_STACK_CONFIG_MIB_stackUnitSWVersion";
 fi
 
 
@@ -282,11 +323,23 @@ then
 fi
 
 
-# ---------- Pull variables for APC UPS ----------
+# ---------- Pull variables for APC devices with NMC ----------
 #
-if echo "$vOID" | grep -q -E "1.3.6.1.4.1.318.1.3.(2|2.7|2.13|5.1)"
+# 1.3.6.1.4.1.318.1.3.2		Smart-UPS SURT6000XLI
+# 1.3.6.1.4.1.318.1.3.11        ATS AP7723 with NMC1
+# 1.3.6.1.4.1.318.1.3.32        ATS AP4423 with NMC2 AP9538
+#
+#
+if echo "$vOID" | grep -q -E "1.3.6.1.4.1.318.1.3.(2|2.7|2.13|5.1|11|32)"
 then
   vData=$( GetData '1.3.6.1.2.1.2.2.1.6.2' ); if [ $? -ne "0" ]; then exit $codeUNKNOWN; fi; SetData "$vData" "snmp_IF_MIB_ifPhysAddress";
+  vData=$( GetData '1.3.6.1.4.1.318.1.4.2.4.1.2.1' ); if [ $? -ne "0" ]; then exit $codeUNKNOWN; fi; SetData "$vData" "snmp_PowerNet_MIB_expNmcSerialNumber";
+  vData=$( GetData '1.3.6.1.4.1.318.1.4.2.4.1.4.1' ); if [ $? -ne "0" ]; then exit $codeUNKNOWN; fi; SetData "$vData" "snmp_PowerNet_MIB_expNmcAOSVersion";
+  vData=$( GetData '1.3.6.1.4.1.318.1.4.2.4.1.4.2' ); if [ $? -ne "0" ]; then exit $codeUNKNOWN; fi; SetData "$vData" "snmp_PowerNet_MIB_expNmcAppVersion";
+  vData=$( GetData '1.3.6.1.4.1.318.1.4.2.4.1.3.1' ); if [ $? -ne "0" ]; then exit $codeUNKNOWN; fi; SetData "$vData" "snmp_PowerNet_MIB_expNmcAOSFile";
+  vData=$( GetData '1.3.6.1.4.1.318.1.4.2.4.1.3.2' ); if [ $? -ne "0" ]; then exit $codeUNKNOWN; fi; SetData "$vData" "snmp_PowerNet_MIB_expNmcAppFile";
+  if echo "$vOID" | grep -q -E "1.3.6.1.4.1.318.1.3.(2|2.7|2.13|5.1)"
+  then
   vData=$( GetData '1.3.6.1.4.1.318.1.1.1.1.1.1.0' ); if [ $? -ne "0" ]; then exit $codeUNKNOWN; fi; SetData "$vData" "snmp_PowerNet_MIB_upsBasicIdentModel";
   vData=$( GetData '1.3.6.1.4.1.318.1.1.1.1.1.2.0' ); if [ $? -ne "0" ]; then exit $codeUNKNOWN; fi; SetData "$vData" "snmp_PowerNet_MIB_upsBasicIdentName";
   vData=$( GetData '1.3.6.1.4.1.318.1.1.1.1.2.1.0' ); if [ $? -ne "0" ]; then exit $codeUNKNOWN; fi; SetData "$vData" "snmp_PowerNet_MIB_upsAdvIdentFirmwareRevision";
@@ -296,18 +349,74 @@ then
   vData=$( GetData '1.3.6.1.4.1.318.1.1.1.2.1.3.0' ); if [ $? -ne "0" ]; then exit $codeUNKNOWN; fi; SetData "$vData" "snmp_PowerNet_MIB_upsBasicBatteryLastReplaceDate";
   vData=$( GetData '1.3.6.1.4.1.318.1.1.1.2.2.5.0' ); if [ $? -ne "0" ]; then exit $codeUNKNOWN; fi; SetData "$vData" "snmp_PowerNet_MIB_upsAdvBatteryNumOfBattPacks";
   vData=$( GetData '1.3.6.1.4.1.318.1.1.1.3.1.1.0' ); if [ $? -ne "0" ]; then exit $codeUNKNOWN; fi; SetData "$vData" "snmp_PowerNet_MIB_upsBasicInputPhase";
-  vData=$( GetData '1.3.6.1.4.1.318.1.4.2.4.1.2.1' ); if [ $? -ne "0" ]; then exit $codeUNKNOWN; fi; SetData "$vData" "snmp_PowerNet_MIB_expNmcSerialNumber";
-  vData=$( GetData '1.3.6.1.4.1.318.1.4.2.4.1.4.1' ); if [ $? -ne "0" ]; then exit $codeUNKNOWN; fi; SetData "$vData" "snmp_PowerNet_MIB_expNmcAOSVersion";
-  vData=$( GetData '1.3.6.1.4.1.318.1.4.2.4.1.4.2' ); if [ $? -ne "0" ]; then exit $codeUNKNOWN; fi; SetData "$vData" "snmp_PowerNet_MIB_expNmcAppVersion";
-  vData=$( GetData '1.3.6.1.4.1.318.1.4.2.4.1.3.1' ); if [ $? -ne "0" ]; then exit $codeUNKNOWN; fi; SetData "$vData" "snmp_PowerNet_MIB_expNmcAOSFile";
-  vData=$( GetData '1.3.6.1.4.1.318.1.4.2.4.1.3.2' ); if [ $? -ne "0" ]; then exit $codeUNKNOWN; fi; SetData "$vData" "snmp_PowerNet_MIB_expNmcAppFile";
+  elif echo "$vOID" | grep -q -E "1.3.6.1.4.1.318.1.3.(11|32)"
+  then
+  vData=$( GetData '1.3.6.1.4.1.318.1.1.8.1.1.0' ); if [ $? -ne "0" ]; then exit $codeUNKNOWN; fi; SetData "$vData" "snmp_PowerNet_MIB_atsIdentHardwareRev";
+  vData=$( GetData '1.3.6.1.4.1.318.1.1.8.1.2.0' ); if [ $? -ne "0" ]; then exit $codeUNKNOWN; fi; SetData "$vData" "snmp_PowerNet_MIB_atsIdentFirmwareRev";
+  vData=$( GetData '1.3.6.1.4.1.318.1.1.8.1.4.0' ); if [ $? -ne "0" ]; then exit $codeUNKNOWN; fi; SetData "$vData" "snmp_PowerNet_MIB_atsIdentDateOfManufacture";
+  vData=$( GetData '1.3.6.1.4.1.318.1.1.8.1.5.0' ); if [ $? -ne "0" ]; then exit $codeUNKNOWN; fi; SetData "$vData" "snmp_PowerNet_MIB_atsIdentModelNumber";
+  vData=$( GetData '1.3.6.1.4.1.318.1.1.8.1.6.0' ); if [ $? -ne "0" ]; then exit $codeUNKNOWN; fi; SetData "$vData" "snmp_PowerNet_MIB_atsIdentSerialNumber";
+  fi
+
+fi
+
+# ---------- Pull variables for UPS devices with PSU Sputnik ----------
+#
+# 1.3.6.1.4.1.54661.1.1.1      PSU Sputnik
+#
+if echo "$vOID" | grep -q -E "1.3.6.1.4.1.54661.1.1.1"
+then
+  vData=$( GetData '1.3.6.1.6.3.10.2.1.1.0' ); if [ $? -ne "0" ]; then exit $codeUNKNOWN; fi; SetData "$vData" "snmp_SNMP_FRAMEWORK_MIB_SnmpEngineID";
+  vData=$( GetData '1.3.6.1.2.1.33.1.1.4.0' ); if [ $? -ne "0" ]; then exit $codeUNKNOWN; fi; SetData "$vData" "snmp_UPS_MIB_upsIdentAgentSoftwareVersion";
+fi
+
+# ---------- Pull variables for HP/HPE Storages ----------
+#
+# .1.3.6.1.4.1.11.2.51      HP MSA P2000 G3 Storage
+#
+#
+if echo "$vOID" | grep -q -E "1.3.6.1.4.1.11.2.51"
+then
+  vData=$( GetData '1.3.6.1.4.1.232.2.2.2.1.0' ); if [ $? -ne "0" ]; then exit $codeUNKNOWN; fi; SetData "$vData" "snmp_CPQSINFO_MIB_cpqSiSysSerialNum";
+  vData=$( GetData '1.3.6.1.4.1.232.2.2.2.6.0' ); if [ $? -ne "0" ]; then exit $codeUNKNOWN; fi; SetData "$vData" "snmp_CPQSINFO_MIB_cpqSiSysProductId";
+  vData=$( GetData '1.3.6.1.4.1.232.2.2.4.2.0' ); if [ $? -ne "0" ]; then exit $codeUNKNOWN; fi; SetData "$vData" "snmp_CPQSINFO_MIB_cpqSiProductName";
+fi
+
+# ---------- Pull variables for Plygon devices ----------
+#
+# 1.3.6.1.4.1.14885.200.11      Polygon Arlan-9000-1RS232
+#
+#
+if echo "$vOID" | grep -q -E "1.3.6.1.4.1.14885.200.11"
+then
+  vData=$( GetData '1.3.6.1.4.1.14885.300.1.3.1' ); if [ $? -ne "0" ]; then exit $codeUNKNOWN; fi; SetData "$vData" "snmp_POLYGON_MIB_polSysVersionNum";
+  vData=$( GetData '1.3.6.1.4.1.14885.300.1.4.1' ); if [ $? -ne "0" ]; then exit $codeUNKNOWN; fi; SetData "$vData" "snmp_POLYGON_MIB_polSysSerialNum";
+fi
+
+# ---------- Pull variables for Printers ----------
+#
+# 1.3.6.1.4.1.1347.41      Kyosera ECOSYS M3655idn
+#			   Kyosera ECOSYS M8130cidn 
+#
+#
+if echo "$vOID" | grep -q -E "1.3.6.1.4.1.1347.41"
+then
+  vData=$( GetData '1.3.6.1.2.1.43.5.1.1.16.1' ); if [ $? -ne "0" ]; then exit $codeUNKNOWN; fi; SetData "$vData" "snmp_Printer_MIB_prtGeneralPrinterName";
+  vData=$( GetData '1.3.6.1.2.1.43.5.1.1.17.1' ); if [ $? -ne "0" ]; then exit $codeUNKNOWN; fi; SetData "$vData" "snmp_Printer_MIB_prtGeneralSerialNumber";
+  vData=$( GetData '1.3.6.1.2.1.2.2.1.6.1' ); if [ $? -ne "0" ]; then exit $codeUNKNOWN; fi; SetData "$vData" "snmp_IF_MIB_ifPhysAddress";
+
+  if echo "$vOID" | grep -q -E "1.3.6.1.4.1.1347.41"; then
+    vData=$( GetData '1.3.6.1.4.1.1347.43.5.4.1.5.1.1' ); if [ $? -ne "0" ]; then exit $codeUNKNOWN; fi; SetData "$vData" "snmp_KYOCERA_Private_MIB_kcprtFirmwareVersion_1";
+    vData=$( GetData '1.3.6.1.4.1.1347.43.5.4.1.5.1.2' ); if [ $? -ne "0" ]; then exit $codeUNKNOWN; fi; SetData "$vData" "snmp_KYOCERA_Private_MIB_kcprtFirmwareVersion_2";
+  fi
+
 fi
 
 
 # ---------- Deploy Icinga Director Configuration ----------
 #
 vDeploy=$( icingacli director config deploy )
-
+#echo "DEBIG : $vDeploy"
 # ---------- Icinga Check Plugin output ----------
 #
 if echo "$vDeploy" | grep -q "nothing to do"
@@ -321,4 +430,4 @@ then
 fi
 #
 echo "$vDeploy"
-exit $codeUNKNOWN
+#exit $codeUNKNOWN
