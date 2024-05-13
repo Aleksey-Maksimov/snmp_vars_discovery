@@ -2,8 +2,10 @@
 
 **snmp_vars_discovery** - Icinga Plugin Script (Check Command) for pull Icinga Host variables from SNMP data
 
-Tested on **Debian GNU/Linux 9.11 (stretch)** with **Icinga r2.11.1-1** / **Director 1.7.1** / **NET-SNMP 5.7.3**
-
+Tested on: 
+ - Debian GNU/Linux 10.13 (Buster) with Icinga r2.14.2-1 / Director 1.11.1 / NET-SNMP 5.7.3
+ - Debian GNU/Linux 12.5 (Bookworm) with Icinga r2.14.2-1 / Director 1.11.1 / NET-SNMP 5.9.3
+   
 PreReq: **snpmget** tool
 
  
